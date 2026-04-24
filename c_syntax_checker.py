@@ -47,13 +47,52 @@ class CSyntaxChecker:
         self.check_control_statements(line)
     
     def check_brackets(self, line):
-        pass
+        stack = []
+        bracket_map = {')': '(', '}': '{', ']': '['}
+        
+        for i, char in enumerate(line):
+            if char in '({[':
+                stack.append(char)
+            elif char in ')}]':
+                if not stack:
+                    self.errors.append(f"Line {self.line_number}: Unmatched closing bracket '{char}' at position {i}")
+                elif stack[-1] != bracket_map[char]:
+                    self.errors.append(f"Line {self.line_number}: Mismatched brackets. Expected '{bracket_map[char]}' before '{char}' at position {i}")
+                else:
+                    stack.pop()
+        
+        for char in stack:
+            self.errors.append(f"Line {self.line_number}: Unclosed bracket '{char}'")
     
     def check_parentheses(self, line):
-        pass
+        stack = []
+        
+        for i, char in enumerate(line):
+            if char == '(':
+                stack.append(char)
+            elif char == ')':
+                if not stack:
+                    self.errors.append(f"Line {self.line_number}: Unmatched closing parenthesis ')' at position {i}")
+                else:
+                    stack.pop()
+        
+        for char in stack:
+            self.errors.append(f"Line {self.line_number}: Unclosed parenthesis '{char}'")
     
     def check_square_brackets(self, line):
-        pass
+        stack = []
+        
+        for i, char in enumerate(line):
+            if char == '[':
+                stack.append(char)
+            elif char == ']':
+                if not stack:
+                    self.errors.append(f"Line {self.line_number}: Unmatched closing bracket ']' at position {i}")
+                else:
+                    stack.pop()
+        
+        for char in stack:
+            self.errors.append(f"Line {self.line_number}: Unclosed bracket '{char}'")
     
     def check_semicolons(self, line):
         stripped = line.strip()
@@ -133,26 +172,32 @@ class CSyntaxChecker:
                         self.errors.append(f"Line {self.line_number}: Mixed brace and semicolon usage in '{keyword}' statement")
     
     def check_global_structure(self, content):
-        open_braces = content.count('{')
-        close_braces = content.count('}')
-        
-        if open_braces != close_braces:
-            self.errors.append(f"Global: Unmatched braces. Found {open_braces} '{{' and {close_braces} '}}'")
-        
-        open_parens = content.count('(')
-        close_parens = content.count(')')
-        
-        if open_parens != close_parens:
-            self.errors.append(f"Global: Unmatched parentheses. Found {open_parens} '(' and {close_parens} ')'")
-        
-        open_brackets = content.count('[')
-        close_brackets = content.count(']')
-        
-        if open_brackets != close_brackets:
-            self.errors.append(f"Global: Unmatched square brackets. Found {open_brackets} '[' and {close_brackets} ']'")
+        self.check_global_bracket_balance(content)
         
         self.check_function_declarations(content)
         self.check_string_literals(content)
+    
+    def check_global_bracket_balance(self, content):
+        stack = []
+        bracket_map = {')': '(', '}': '{', ']': '['}
+        lines = content.split('\n')
+        
+        for line_num, line in enumerate(lines, 1):
+            for i, char in enumerate(line):
+                if char in '({[':
+                    stack.append((char, line_num, i))
+                elif char in ')}]':
+                    if not stack:
+                        self.errors.append(f"Line {line_num}: Unmatched closing bracket '{char}' at position {i}")
+                    elif stack[-1][0] != bracket_map[char]:
+                        opening_bracket, open_line, open_pos = stack[-1]
+                        self.errors.append(f"Line {line_num}: Mismatched brackets. Expected '{bracket_map[char]}' (opened at line {open_line}, pos {open_pos}) before '{char}' at position {i}")
+                        stack.pop()
+                    else:
+                        stack.pop()
+        
+        for bracket, line_num, pos in stack:
+            self.errors.append(f"Line {line_num}: Unclosed bracket '{bracket}' at position {pos}")
     
     def check_function_declarations(self, content):
         functions = re.findall(r'\w+\s+\w+\s*\([^)]*\)\s*{', content)
