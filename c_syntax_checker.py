@@ -1,455 +1,501 @@
+"""
+=============================================================================
+C Syntax Checker
+=============================================================================
+Module 1 – Main Function Validation
+    Check 1 : Program must have int main() or void main()
+    Check 2 : main() must be followed by opening '{'
+    Check 2.5: return statement must exist inside main() body
+    Check 3 : Stack-based curly-bracket balancing
+
+Module 2 – Statement Analyser (line-by-line inside main body)
+    Step A : Tokenise each line
+    Step B : Identify statement type
+               DECLARATION  – int / float / char / double / long / short
+               IF           – if(...)
+               FOR          – for(...)
+               WHILE        – while(...)
+               PRINTF       – printf(...)
+               SCANF        – scanf(...)
+               ASSIGNMENT   – identifier = expression
+               ARITHMETIC   – expression without assignment
+               RETURN       – return ...
+    Step C : Per-type validation
+               • Variable name valid (starts with letter/_, no spaces mid-name)
+               • '=' must not appear before the variable name
+               • Invalid operator combinations: *+  *-  /+  /-  +*  -*
+               • Invalid post-increment usage: i++b  i++*5
+               • Missing semicolon at end of statement
+               • Unmatched parentheses  ( )
+=============================================================================
+"""
+
 import re
 import sys
 
+
 class CSyntaxChecker:
+
+    # ── Data tables ────────────────────────────────────────────────────────
+    TYPE_KEYWORDS = {'int', 'float', 'double', 'char', 'long', 'short',
+                     'unsigned', 'signed', 'void'}
+
+    # Operator combinations that are never valid
+    INVALID_OP_COMBOS = [
+        (r'\*\+',          '*+'),
+        (r'\*-(?![=>])',   '*-'),
+        (r'/\+',           '/+'),
+        (r'/-(?![=>])',    '/-'),
+        (r'\+\*(?!=)',     '+*'),
+        (r'-\*(?![=>])',   '-*'),
+    ]
+
+    # Post-increment/decrement immediately followed by identifier or * /
+    # e.g.  i++b   i++*5   a--b
+    INVALID_POSTFIX = [
+        (r'\+\+\s*[a-zA-Z_]',  'i++<identifier>  (e.g. i++b)'),
+        (r'--\s*[a-zA-Z_]',    'i--<identifier>  (e.g. a--b)'),
+        (r'\+\+\s*[*/]',       'i++<operator>    (e.g. i++*5)'),
+        (r'--\s*[*/]',         'i--<operator>    (e.g. a--/2)'),
+    ]
+
     def __init__(self):
-        self.keywords = {
-            'int', 'float', 'double', 'char', 'void', 'long', 'short', 'unsigned', 'signed',
-            'if', 'else', 'while', 'for', 'do', 'switch', 'case', 'default', 'break', 'continue',
-            'return', 'goto', 'sizeof', 'typedef', 'struct', 'union', 'enum', 'const', 'static',
-            'extern', 'auto', 'register', 'volatile'
-        }
-        self.operators = {'+', '-', '*', '/', '%', '++', '--', '==', '!=', '<', '>', '<=', '>=', '&&', '||', '!', '&', '|', '^', '~', '<<', '>>', '=', '+=', '-=', '*=', '/=', '%='}
         self.errors = []
-        self.line_number = 0
-        
+
+    # ==================================================================== #
+    #  Entry Points
+    # ==================================================================== #
     def check_file(self, filename):
         try:
-            with open(filename, 'r') as file:
-                content = file.read()
-                self.check_content(content)
+            with open(filename, 'r') as f:
+                content = f.read()
+            self.check_content(content)
             return self.errors
         except FileNotFoundError:
             return [f"Error: File '{filename}' not found"]
-    
+
     def check_content(self, content):
-        lines = content.split('\n')
-        self.line_number = 0
-        self.content = content  # Store content for access in other methods
-        
-        # Track multi-line expressions to avoid false positives
-        self.multiline_expression_lines = set()
-        
-        # First pass: identify multi-line expressions
-        self.identify_multiline_expressions(content)
-        
-        # Second pass: line-by-line analysis (skip multi-line expression lines)
-        for line in lines:
-            self.line_number += 1
-            self.check_line(line)
-        
-        # Third pass: multi-line expression analysis
-        self.check_multiline_expressions(content)
-        
-        self.check_global_structure(content)
-        self.check_keyword_sequence(content)
-    
-    def check_line(self, line):
-        stripped = line.strip()
-        
-        if not stripped or stripped.startswith('//') or stripped.startswith('/*'):
+        self.errors = []
+        self.check_main(content)        # Module 1
+        self.check_statements(content)  # Module 2
+
+    # ==================================================================== #
+    #  MODULE 1 – Main Function Validation
+    # ==================================================================== #
+    def check_main(self, content):
+        code = self._strip_comments(content)
+        lines = code.split('\n')
+
+        # ── Check 1: signature ─────────────────────────────────────────
+        main_match = re.search(r'\b(int|void)\s+main\s*\(', code)
+
+        if not main_match:
+            self.errors.append(
+                "Error: Program must have a valid main function — "
+                "'int main()' or 'void main()'"
+            )
+            self._bracket_stack(lines, main_line=None)
             return
-        
-        self.check_brackets(line)
-        self.check_semicolons(line)
-        self.check_parentheses(line)
-        self.check_square_brackets(line)
-        self.check_invalid_characters(line)
-        self.check_control_statements(line)
-    
-    def check_brackets(self, line):
-        # Simplified bracket checking - only report obvious errors
-        stripped = line.strip()
-        
-        # Skip most bracket checking to reduce false positives
-        # Only check if line has both opening and closing brackets of same type
-        if line.count('{') > 0 and line.count('}') > 0:
-            if line.count('{') != line.count('}'):
-                # Only report if it's a clear mismatch in a single line
-                if abs(line.count('{') - line.count('}')) > 1:
-                    self.errors.append(f"Line {self.line_number}: Multiple mismatched braces")
-        
-        if line.count('(') != line.count(')'):
-            # Only report if it's a clear mismatch in a single line
-            if abs(line.count('(') - line.count(')')) > 1:
-                self.errors.append(f"Line {self.line_number}: Multiple mismatched parentheses")
-        
-        # Simplified bracket checking - disable complex stack-based checking
-        # to reduce false positives
-        pass
-    
-    def check_parentheses(self, line):
-        stack = []
-        
-        for i, char in enumerate(line):
-            if char == '(':
-                stack.append(char)
-            elif char == ')':
-                if not stack:
-                    self.errors.append(f"Line {self.line_number}: Unmatched closing parenthesis ')' at position {i}")
+
+        return_type  = main_match.group(1)
+        main_line_no = self._line_of(code, main_match.start())
+
+        if return_type == 'void':
+            self.errors.append(
+                f"Warning (Line {main_line_no}): 'void main()' found — "
+                f"prefer 'int main()' for standard C"
+            )
+
+        # ── Check 2: opening '{' ───────────────────────────────────────
+        open_pos = code.find('{', main_match.end())
+        if open_pos == -1:
+            self.errors.append(
+                f"Error (Line {main_line_no}): "
+                f"main() must be followed by an opening '{{'"
+            )
+            return
+
+        # ── Check 2.5: 'return' inside body ───────────────────────────
+        depth = 0
+        body_end = None
+        for i in range(open_pos, len(code)):
+            if code[i] == '{':
+                depth += 1
+            elif code[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    body_end = i
+                    break
+
+        if body_end is None:
+            self.errors.append(
+                f"Error (Line {main_line_no}): "
+                f"Unclosed '{{' — main() body is never closed"
+            )
+        else:
+            body = code[open_pos + 1: body_end]
+            if not re.search(r'\breturn\b', body):
+                if return_type == 'int':
+                    self.errors.append(
+                        f"Error (Line {main_line_no}): "
+                        f"'int main()' is missing a 'return' statement"
+                    )
                 else:
-                    stack.pop()
-        
-        for char in stack:
-            self.errors.append(f"Line {self.line_number}: Unclosed parenthesis '{char}'")
-    
-    def check_square_brackets(self, line):
+                    self.errors.append(
+                        f"Warning (Line {main_line_no}): "
+                        f"'void main()' has no 'return' — optional but recommended"
+                    )
+
+        # ── Check 3: bracket stack ─────────────────────────────────────
+        self._bracket_stack(lines, main_line=main_line_no)
+
+    def _bracket_stack(self, lines, main_line):
         stack = []
-        
-        for i, char in enumerate(line):
-            if char == '[':
-                stack.append(char)
-            elif char == ']':
-                if not stack:
-                    self.errors.append(f"Line {self.line_number}: Unmatched closing bracket ']' at position {i}")
-                else:
-                    stack.pop()
-        
-        for char in stack:
-            self.errors.append(f"Line {self.line_number}: Unclosed bracket '{char}'")
-    
-    def check_semicolons(self, line):
-        stripped = line.strip()
-        
-        if not stripped or stripped.startswith('#') or stripped.startswith('//') or stripped.startswith('/*'):
-            return
-        
-        # Skip if this line is part of a multi-line expression
-        if self.line_number in self.multiline_expression_lines:
-            return
-        
-        # Additional check: skip lines that look like they're part of multi-line expressions
-        if (len(stripped) <= 3 and  # Short lines like "a", "c", "d"
-            stripped.isalnum() and 
-            self.line_number > 1):  # Not the first line
-            return
-        
-        # Skip lines with only operators in multi-line context
-        if stripped in ['+', '-', '*', '/', '=', '+', '-'] and self.line_number > 1:
-            return
-        
-        if any(keyword in stripped for keyword in ['if', 'while', 'for', 'switch', 'else', 'do']):
-            return
-        
-        if '{' in stripped or '}' in stripped:
-            return
-        
-        # Check for missing semicolons in assignment statements
-        if ('=' in stripped and not stripped.startswith('#') and 
-            not stripped.endswith(';') and not stripped.endswith('{') and 
-            not stripped.endswith('}') and not stripped.endswith(')')):
-            if any(op in stripped for op in ['==', '!=', '<=', '>=', '&&', '||']):
-                return
-            if not any(keyword in stripped for keyword in ['if', 'while', 'for']):
-                self.errors.append(f"Line {self.line_number}: Missing semicolon in statement")
-        
-        # Check for missing semicolons in single identifiers/expressions
-        elif (re.match(r'^[a-zA-Z_]\w*$', stripped) and  # Single identifier
-              self.line_number > 1 and  # Not first line
-              not any(keyword in stripped for keyword in ['if', 'while', 'for', 'switch', 'else', 'do', 'return', 'break', 'continue'])):
-            # Check if current line ends with semicolon
-            if not stripped.endswith(';'):
-                self.errors.append(f"Line {self.line_number}: Missing semicolon after identifier '{stripped}'")
-        
-        # Check for missing semicolons between multiple identifiers
-        elif (re.match(r'^[a-zA-Z_]\w*\s*[a-zA-Z_]\w*$', stripped) and  # Two identifiers without semicolon
-              self.line_number > 1 and
-              not any(keyword in stripped for keyword in ['if', 'while', 'for', 'switch', 'else', 'do', 'return', 'break', 'continue'])):
-            self.errors.append(f"Line {self.line_number}: Missing semicolon between identifiers")
-        
-        # Comprehensive semicolon detection for expression patterns only
-        elif (self.line_number > 1 and 
-              not any(keyword in stripped for keyword in ['if', 'while', 'for', 'switch', 'else', 'do', 'return', 'break', 'continue']) and
-              not re.match(r'^\s*(int|float|double|char|void|long|short|unsigned|signed|static|extern|auto|register|const|volatile)', stripped)):
-            
-            # Only check lines that look like expressions (not declarations)
-            tokens = re.findall(r'[a-zA-Z_]\w*|;', stripped)
-            
-            # Focus on specific problematic patterns
-            if len(tokens) >= 2:
-                errors_found = []
-                
-                # Pattern 1: ab;cd (missing semicolon after cd)
-                if 'ab;cd' in stripped.replace(' ', ''):
-                    errors_found.append("Missing semicolon after 'cd'")
-                
-                # Pattern 2: General case - two identifiers with semicolon in wrong place
-                if re.search(r'\b[a-zA-Z_]\w*\s*;\s*[a-zA-Z_]\w*\b', stripped):
-                    # Extract all identifier+semicolon patterns
-                    matches = re.findall(r'\b([a-zA-Z_]\w*)\s*;\s*([a-zA-Z_]\w*)\b', stripped)
-                    if matches:
-                        id1, id2 = matches[0]
-                        # Check if this is the LAST part of the line (no more identifiers after)
-                        remaining_after = stripped[stripped.find(id2) + len(id2):].strip()
-                        if remaining_after and not remaining_after.startswith(';'):
-                            # There are more identifiers after id2 without semicolon
-                            errors_found.append(f"Missing semicolon after '{id2}'")
-                        elif not remaining_after and not stripped.rstrip().endswith(';'):
-                            # id2 is the last thing but no semicolon at end
-                            errors_found.append(f"Missing semicolon after '{id2}'")
-                
-                # Pattern 3: Multiple identifiers without semicolons (like ab cd)
-                elif re.search(r'\b[a-zA-Z_]\w*\s+[a-zA-Z_]\w*\b', stripped) and ';' not in stripped:
-                    matches = re.findall(r'\b([a-zA-Z_]\w*)\s+([a-zA-Z_]\w*)\b', stripped)
-                    if matches:
-                        id1, id2 = matches[0]
-                        errors_found.append(f"Missing semicolon between '{id1}' and '{id2}'")
-                
-                # Pattern 4: Multiple consecutive semicolons
-                if ';;' in stripped:
-                    semicolon_count = len(re.findall(r';+', stripped))
-                    max_consecutive = max(len(match) for match in re.findall(r';+', stripped))
-                    if max_consecutive > 1:
-                        errors_found.append(f"Multiple semicolons detected ({max_consecutive} consecutive)")
-                
-                # Report errors (limit to avoid noise)
-                for error in errors_found[:2]:  # Max 2 errors per line
-                    self.errors.append(f"Line {self.line_number}: {error}")
-    
-    def check_invalid_characters(self, line):
-        invalid_chars = re.findall(r'[^\w\s\{\}\(\)\[\];,\.\+\-\*/%<>=!&|^~?:#\'"\\]', line)
-        if invalid_chars:
-            self.errors.append(f"Line {self.line_number}: Invalid character(s): {', '.join(set(invalid_chars))}")
-    
-    def check_control_statements(self, line):
-        stripped = line.strip()
-        
-        if not stripped or stripped.startswith('//') or stripped.startswith('/*'):
-            return
-        
-        self.check_control_parentheses(stripped)
-        self.check_for_loop_syntax(stripped)
-        self.check_control_braces(stripped)
-    
-    def check_control_parentheses(self, line):
-        control_keywords = ['if', 'while', 'for', 'switch']
-        
-        for keyword in control_keywords:
-            pattern = rf'\b{keyword}\b\s*(?!\()'
-            if re.search(pattern, line):
-                self.errors.append(f"Line {self.line_number}: Missing parentheses after '{keyword}'")
-        
-        for keyword in control_keywords:
-            pattern = rf'\b{keyword}\s*\(([^)]*)'
-            matches = re.findall(pattern, line)
-            for match in matches:
-                if not match.strip():
-                    self.errors.append(f"Line {self.line_number}: Empty condition in '{keyword}' statement")
-    
-    def check_for_loop_syntax(self, line):
-        if 'for' in line:
-            for_pattern = r'for\s*\(([^)]*)\)'
-            match = re.search(for_pattern, line)
-            if match:
-                for_content = match.group(1).strip()
-                parts = [part.strip() for part in for_content.split(';')]
-                
-                if len(parts) != 3:
-                    self.errors.append(f"Line {self.line_number}: Invalid for loop syntax - expected 2 semicolons")
-                else:
-                    if parts[0] and not (re.match(r'^[a-zA-Z_]\w*\s*[a-zA-Z_]\w*\s*=\s*\w+', parts[0]) or 
-                                       parts[0] in [';', ''] or re.match(r'^\s*[a-zA-Z_]\w+\s*$', parts[0])):
-                        pass
-    
-    def check_control_braces(self, line):
-        control_keywords = ['if', 'while', 'for', 'switch', 'else']
-        
-        for keyword in control_keywords:
-            pattern = rf'\b{keyword}\b.*\{{'
-            if re.search(pattern, line):
-                next_brace = line.find('{', line.find(keyword))
-                if next_brace != -1:
-                    remaining = line[next_brace+1:]
-                    if '}' not in remaining and ';' in remaining:
-                        self.errors.append(f"Line {self.line_number}: Mixed brace and semicolon usage in '{keyword}' statement")
-    
-    def check_global_structure(self, content):
-        self.check_global_bracket_balance(content)
-        
-        self.check_function_declarations(content)
-        self.check_string_literals(content)
-    
-    def check_global_bracket_balance(self, content):
-        stack = []
-        bracket_map = {')': '(', '}': '{', ']': '['}
-        lines = content.split('\n')
-        
-        for line_num, line in enumerate(lines, 1):
-            for i, char in enumerate(line):
-                if char in '({[':
-                    stack.append((char, line_num, i))
-                elif char in ')}]':
+        main_brace_found = False
+        for line_no, line in enumerate(lines, start=1):
+            for col, ch in enumerate(line, start=1):
+                if ch == '{':
+                    stack.append(line_no)
+                    if main_line and line_no >= main_line and not main_brace_found:
+                        main_brace_found = True
+                elif ch == '}':
                     if not stack:
-                        self.errors.append(f"Line {line_num}: Unmatched closing bracket '{char}' at position {i}")
-                    elif stack[-1][0] != bracket_map[char]:
-                        opening_bracket, open_line, open_pos = stack[-1]
-                        self.errors.append(f"Line {line_num}: Mismatched brackets. Expected '{bracket_map[char]}' (opened at line {open_line}, pos {open_pos}) before '{char}' at position {i}")
-                        stack.pop()
+                        self.errors.append(
+                            f"Error (Line {line_no}, Col {col}): "
+                            f"Unmatched '}}' — no matching opening '{{'"
+                        )
                     else:
                         stack.pop()
-        
-        for bracket, line_num, pos in stack:
-            self.errors.append(f"Line {line_num}: Unclosed bracket '{bracket}' at position {pos}")
-    
-    def check_function_declarations(self, content):
-        functions = re.findall(r'\w+\s+\w+\s*\([^)]*\)\s*{', content)
-        
-        for func in functions:
-            if not any(keyword in func.split('(')[0] for keyword in self.keywords):
-                parts = func.split('(')[0].strip().split()
-                if len(parts) >= 2:
-                    return_type, func_name = parts[0], parts[1]
-                    if return_type not in self.keywords:
-                        self.errors.append(f"Possible invalid return type '{return_type}' in function '{func_name}'")
-    
-    def check_string_literals(self, content):
-        strings = re.findall(r'"[^"]*"', content)
-        for string in strings:
-            if string.count('"') % 2 != 0:
-                self.errors.append(f"Unterminated string literal: {string}")
-    
-    def check_keyword_sequence(self, content):
-        lines = content.split('\n')
-        line_num = 0
-        
-        for line in lines:
-            line_num += 1
-            stripped = line.strip()
-            
-            if not stripped or stripped.startswith('//') or stripped.startswith('/*'):
+        for open_line in stack:
+            self.errors.append(
+                f"Error (Line {open_line}): Unclosed '{{' — missing closing '}}'"
+            )
+        if main_line and not main_brace_found:
+            self.errors.append(
+                f"Error (Line {main_line}): main() must be followed by opening '{{'"
+            )
+
+    def check_statements(self, content):
+        """
+        For every non-blank, non-comment line:
+          A. Tokenise → identify statement type
+          B. Run per-type checks
+          C. Run universal checks (operators, semicolons, parens)
+        """
+        code  = self._strip_comments(content)
+        lines = code.split('\n')
+
+        for line_no, raw in enumerate(lines, start=1):
+            line = raw.strip()
+
+            # Skip blanks, preprocessor, pure braces, main signature
+            if (not line
+                    or line.startswith('#')
+                    or line in ('{', '}', '};')
+                    or re.match(r'\b(int|void)\s+main\s*\(', line)):
                 continue
-            
-            if 'else' in stripped and 'if' not in stripped:
-                prev_lines = lines[:line_num-1]
-                found_matching_if = False
-                
-                for prev_line in reversed(prev_lines[-10:]):
-                    prev_stripped = prev_line.strip()
-                    if 'if' in prev_stripped and 'else' not in prev_stripped:
-                        found_matching_if = True
-                        break
-                    elif '{' in prev_stripped and '}' in prev_stripped:
-                        break
-                
-                if not found_matching_if:
-                    self.errors.append(f"Line {line_num}: 'else' without matching 'if'")
-    
-    def identify_multiline_expressions(self, content):
-        lines = content.split('\n')
-        i = 0
-        
-        while i < len(lines):
-            line = lines[i].strip()
-            
-            if not line or line.startswith('//') or line.startswith('/*') or line.startswith('#'):
-                i += 1
-                continue
-            
-            # Check if line starts an expression (contains assignment operator but no semicolon)
-            if '=' in line and ';' not in line and not any(keyword in line for keyword in ['if', 'while', 'for', 'switch', 'else', 'do']):
-                # Look ahead to find the complete expression
-                j = i + 1
-                
-                while j < len(lines):
-                    next_line = lines[j].strip()
-                    if not next_line or next_line.startswith('//') or next_line.startswith('/*'):
-                        j += 1
-                        continue
-                    
-                    # Check if expression ends with semicolon
-                    if next_line.endswith(';'):
-                        break
-                    
-                    # Check if we hit a control statement or new block
-                    if any(keyword in next_line for keyword in ['if', 'while', 'for', 'switch', 'else', 'do']) or next_line.startswith('{'):
-                        break
-                    
-                    j += 1
-                
-                # Mark all lines in this multi-line expression
-                for line_num in range(i + 1, j + 1):
-                    self.multiline_expression_lines.add(line_num + 1)  # +1 for 1-based line numbering
-                
-                i = j + 1
-            else:
-                i += 1
-    
-    def check_multiline_expressions(self, content):
-        lines = content.split('\n')
-        i = 0
-        
-        while i < len(lines):
-            line = lines[i].strip()
-            
-            if not line or line.startswith('//') or line.startswith('/*') or line.startswith('#'):
-                i += 1
-                continue
-            
-            # Check if line starts an expression (contains assignment operator but no semicolon)
-            if '=' in line and ';' not in line and not any(keyword in line for keyword in ['if', 'while', 'for', 'switch', 'else', 'do']):
-                # Look ahead to find the complete expression
-                expression_lines = [line]
-                j = i + 1
-                
-                while j < len(lines):
-                    next_line = lines[j].strip()
-                    if not next_line or next_line.startswith('//') or next_line.startswith('/*'):
-                        j += 1
-                        continue
-                    
-                    expression_lines.append(next_line)
-                    
-                    # Check if expression ends with semicolon
-                    if next_line.endswith(';'):
-                        break
-                    
-                    # Check if we hit a control statement or new block
-                    if any(keyword in next_line for keyword in ['if', 'while', 'for', 'switch', 'else', 'do']) or next_line.startswith('{'):
-                        break
-                    
-                    j += 1
-                
-                # Combine expression lines
-                full_expression = ' '.join(expression_lines)
-                
-                # Check if combined expression has semicolon
-                if not full_expression.endswith(';'):
-                    self.errors.append(f"Line {i+1}: Missing semicolon in multi-line expression")
-                
-                i = j + 1
-            else:
-                i += 1
-    
-    def check_preprocessor_directives(self, content):
-        lines = content.split('\n')
-        for i, line in enumerate(lines, 1):
-            stripped = line.strip()
-            if stripped.startswith('#'):
-                if not re.match(r'^#\s*(include|define|undef|ifdef|ifndef|if|else|elif|endif|pragma|error)\b', stripped):
-                    self.errors.append(f"Line {i}: Invalid preprocessor directive: {stripped}")
-    
+
+            stmt_type = self._identify_statement(line)
+            self._validate_statement(line_no, line, stmt_type)
+
+    # ------------------------------------------------------------------ #
+    #  Step A+B : Tokenise & Identify
+    # ------------------------------------------------------------------ #
+    def _tokenise(self, line):
+        """
+        Split line into tokens:
+          - identifiers / keywords   [a-zA-Z_]\w*
+          - numbers                  \d+(\.\d+)?
+          - compound operators       +=  -=  *=  /=  %=  ==  !=  <=  >=  ++  --
+          - single char operators    + - * / % = < > ! & | ^ ~ ? :
+          - punctuation              ( ) [ ] { } ; ,
+        """
+        pattern = r'[a-zA-Z_]\w*|\d+(?:\.\d+)?|[+\-*/%&|^~]=|[<>!]=|[+][+]|--|&&|\|\||[+\-*/%=<>!&|^~?:()\[\]{};,"]'
+        return re.findall(pattern, line)
+
+    def _identify_statement(self, line):
+        """Return statement type string based on the first meaningful token."""
+        tokens = self._tokenise(line)
+        if not tokens:
+            return 'EMPTY'
+
+        first = tokens[0]
+
+        if first in self.TYPE_KEYWORDS:
+            return 'DECLARATION'
+        if first == 'if':
+            return 'IF'
+        if first == 'else':
+            return 'ELSE'
+        if first == 'for':
+            return 'FOR'
+        if first == 'while':
+            return 'WHILE'
+        if first == 'printf':
+            return 'PRINTF'
+        if first == 'scanf':
+            return 'SCANF'
+        if first == 'return':
+            return 'RETURN'
+        if first in ('break', 'continue'):
+            return 'CONTROL_FLOW'
+        # Assignment: identifier followed by = (but not == != <= >=)
+        if (re.match(r'^[a-zA-Z_]\w*', line)
+                and re.search(r'(?<![=!<>])=(?!=)', line)):
+            return 'ASSIGNMENT'
+        return 'ARITHMETIC'
+
+    # ------------------------------------------------------------------ #
+    #  Step C : Validate per statement type
+    # ------------------------------------------------------------------ #
+    def _validate_statement(self, line_no, line, stmt_type):
+        """Dispatch to the right validator, then run universal checks."""
+
+        if stmt_type == 'DECLARATION':
+            self._check_declaration(line_no, line)
+
+        elif stmt_type == 'IF':
+            self._check_control_keyword(line_no, line, 'if')
+
+        elif stmt_type == 'FOR':
+            self._check_for(line_no, line)
+
+        elif stmt_type == 'WHILE':
+            self._check_control_keyword(line_no, line, 'while')
+
+        elif stmt_type in ('PRINTF', 'SCANF'):
+            self._check_io_function(line_no, line, stmt_type.lower())
+
+        elif stmt_type == 'ASSIGNMENT':
+            self._check_assignment(line_no, line)
+
+        elif stmt_type == 'ARITHMETIC':
+            self._check_arithmetic(line_no, line)
+
+        # Universal checks on every statement
+        self._check_invalid_operators(line_no, line)
+        self._check_invalid_postfix(line_no, line)
+        self._check_semicolon(line_no, line, stmt_type)
+        self._check_paren_balance(line_no, line)
+
+    # ── DECLARATION  (e.g. int a = 5;  char name[10];) ────────────────
+    def _check_declaration(self, line_no, line):
+        tokens = self._tokenise(line)
+        if len(tokens) < 2:
+            self.errors.append(
+                f"Error (Line {line_no}): Declaration missing variable name"
+            )
+            return
+
+        var_name = tokens[1]
+
+        # Variable name must start with letter or _
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', var_name):
+            self.errors.append(
+                f"Error (Line {line_no}): Invalid variable name '{var_name}' — "
+                f"must start with a letter or '_'"
+            )
+
+        # '=' must NOT appear before the variable name on the line
+        before_var = line[:line.find(var_name)]
+        if '=' in before_var:
+            self.errors.append(
+                f"Error (Line {line_no}): '=' appears before variable name '{var_name}'"
+            )
+
+    # ── IF / WHILE  (e.g. if(x > 0)  while(i < 10)) ───────────────────
+    def _check_control_keyword(self, line_no, line, keyword):
+        # Must have '(' right after keyword
+        if not re.search(rf'\b{keyword}\s*\(', line):
+            self.errors.append(
+                f"Error (Line {line_no}): '{keyword}' must be followed by '('"
+            )
+            return
+
+        # Condition inside () must not be empty
+        match = re.search(rf'\b{keyword}\s*\(([^)]*)\)', line)
+        if match and not match.group(1).strip():
+            self.errors.append(
+                f"Error (Line {line_no}): '{keyword}' has empty condition '()'"
+            )
+
+    # ── FOR  (e.g. for(i=0; i<10; i++)) ───────────────────────────────
+    def _check_for(self, line_no, line):
+        if not re.search(r'\bfor\s*\(', line):
+            self.errors.append(
+                f"Error (Line {line_no}): 'for' must be followed by '('"
+            )
+            return
+
+        match = re.search(r'\bfor\s*\(([^)]*)\)', line)
+        if not match:
+            self.errors.append(
+                f"Error (Line {line_no}): 'for' loop has unmatched parentheses"
+            )
+            return
+
+        body = match.group(1)
+        parts = body.split(';')
+        if len(parts) != 3:
+            self.errors.append(
+                f"Error (Line {line_no}): 'for' loop needs exactly 2 semicolons "
+                f"inside () — got {len(parts)-1}  →  for(init; condition; update)"
+            )
+
+    # ── PRINTF / SCANF ─────────────────────────────────────────────────
+    def _check_io_function(self, line_no, line, fname):
+        if not re.search(rf'\b{fname}\s*\(', line):
+            self.errors.append(
+                f"Error (Line {line_no}): '{fname}' must be followed by '('"
+            )
+            return
+
+        # Must have at least one argument (a string literal for printf/scanf)
+        match = re.search(rf'\b{fname}\s*\(([^)]*)\)', line)
+        if match:
+            args = match.group(1).strip()
+            if not args:
+                self.errors.append(
+                    f"Error (Line {line_no}): '{fname}' called with no arguments"
+                )
+            elif not args.startswith('"'):
+                self.errors.append(
+                    f"Error (Line {line_no}): '{fname}' first argument should be "
+                    f"a string literal starting with '\"'"
+                )
+
+    # ── ASSIGNMENT  (e.g. a = b + 5;  x += 3;) ────────────────────────
+    def _check_assignment(self, line_no, line):
+        tokens = self._tokenise(line)
+        if not tokens:
+            return
+
+        lhs = tokens[0]
+
+        # Left-hand side must be a valid identifier
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', lhs):
+            self.errors.append(
+                f"Error (Line {line_no}): Invalid identifier '{lhs}' "
+                f"on left-hand side of assignment"
+            )
+
+        # '=' must not be the very first token (i.e., = a = 5  is wrong)
+        if line.lstrip().startswith('='):
+            self.errors.append(
+                f"Error (Line {line_no}): Statement begins with '=' — "
+                f"'=' cannot appear before the variable name"
+            )
+
+        # Compound operators: +=  -=  *=  /=  %=  are all valid
+        # But the RHS must not be empty
+        assign_match = re.search(r'(?<![=!<>])=(?!=)\s*$', line.rstrip(';').rstrip())
+        if assign_match:
+            self.errors.append(
+                f"Error (Line {line_no}): Assignment has no right-hand side value"
+            )
+
+    # ── ARITHMETIC  (e.g. a + b * c) ───────────────────────────────────
+    def _check_arithmetic(self, line_no, line):
+        # Expression must not start with a binary operator (not unary - or !)
+        if re.match(r'^\s*[+*/%]', line):
+            self.errors.append(
+                f"Error (Line {line_no}): Expression starts with invalid operator"
+            )
+
+    # ── Universal: invalid operator combinations ────────────────────────
+    def _check_invalid_operators(self, line_no, line):
+        # Remove string literals first to avoid false positives
+        cleaned = re.sub(r'"[^"]*"', '""', line)
+        for pattern, label in self.INVALID_OP_COMBOS:
+            if re.search(pattern, cleaned):
+                self.errors.append(
+                    f"Error (Line {line_no}): Invalid operator combination '{label}'"
+                )
+
+    # ── Universal: invalid post-increment/decrement ─────────────────────
+    def _check_invalid_postfix(self, line_no, line):
+        cleaned = re.sub(r'"[^"]*"', '""', line)
+        for pattern, label in self.INVALID_POSTFIX:
+            if re.search(pattern, cleaned):
+                self.errors.append(
+                    f"Error (Line {line_no}): Invalid post-increment/decrement usage "
+                    f"'{label}'"
+                )
+
+    # ── Universal: semicolon at end ─────────────────────────────────────
+    def _check_semicolon(self, line_no, line, stmt_type):
+        # These statement types don't end with ';'
+        NO_SEMI = {'IF', 'ELSE', 'FOR', 'WHILE', 'EMPTY', 'CONTROL_FLOW'}
+        if stmt_type in NO_SEMI:
+            return
+        # Lines ending with '{' or '}' don't need ';'
+        stripped = line.rstrip()
+        if stripped.endswith(('{', '}')):
+            return
+        if not stripped.endswith(';'):
+            self.errors.append(
+                f"Error (Line {line_no}): Missing semicolon ';' at end of "
+                f"{stmt_type} statement"
+            )
+
+    # ── Universal: parenthesis balance ──────────────────────────────────
+    def _check_paren_balance(self, line_no, line):
+        depth = 0
+        for col, ch in enumerate(line, start=1):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+                if depth < 0:
+                    self.errors.append(
+                        f"Error (Line {line_no}, Col {col}): "
+                        f"Unmatched ')' — no opening '('"
+                    )
+                    return
+        if depth > 0:
+            self.errors.append(
+                f"Error (Line {line_no}): Unclosed '(' — missing closing ')'"
+            )
+
+    # ==================================================================== #
+    #  Helpers
+    # ==================================================================== #
+    def _strip_comments(self, code):
+        """Remove // single-line and /* */ block comments."""
+        code = re.sub(r'//[^\n]*', '', code)
+        code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
+        return code
+
+    def _line_of(self, content, pos):
+        return content[:pos].count('\n') + 1
+
+    # ==================================================================== #
+    #  Output
+    # ==================================================================== #
     def print_errors(self):
         if not self.errors:
             print("✓ No syntax errors found!")
         else:
-            print(f"Found {len(self.errors)} syntax error(s):")
-            for error in self.errors:
-                print(f"  ❌ {error}")
+            print(f"Found {len(self.errors)} issue(s):")
+            for e in self.errors:
+                prefix = "⚠️ " if e.startswith("Warning") else "❌ "
+                print(f"  {prefix}{e}")
 
+
+# ======================================================================== #
+#  CLI entry point
+# ======================================================================== #
 def main():
     if len(sys.argv) != 2:
         print("Usage: python c_syntax_checker.py <c_file>")
-        print("Example: python c_syntax_checker.py program.c")
         return
-    
-    filename = sys.argv[1]
     checker = CSyntaxChecker()
-    
-    print(f"Checking C file: {filename}")
+    filename = sys.argv[1]
+    print(f"Checking: {filename}")
     print("=" * 50)
-    
-    errors = checker.check_file(filename)
+    checker.check_file(filename)
     checker.print_errors()
+
 
 if __name__ == "__main__":
     main()

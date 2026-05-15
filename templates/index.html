@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>C Syntax Checker</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#0d1117; color:#e6edf3;
+  font-family:'Inter',sans-serif; height:100vh;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+header {
+  background:linear-gradient(135deg,#161b22,#0d1117);
+  border-bottom:1px solid #30363d;
+  padding:14px 28px;
+  display:flex; align-items:center; justify-content:space-between;
+  flex-shrink:0;
+}
+.logo { display:flex; align-items:center; gap:10px; }
+.logo-icon {
+  width:36px; height:36px; border-radius:8px;
+  background:linear-gradient(135deg,#f85149,#ff7b72);
+  display:flex; align-items:center; justify-content:center;
+  font-size:18px;
+}
+.logo h1 { font-size:18px; font-weight:800; }
+.logo span { color:#f85149; }
+.header-meta { font-size:12px; color:#8b949e; font-family:'Fira Code',monospace; }
+
+.toolbar {
+  background:#161b22; border-bottom:1px solid #30363d;
+  padding:10px 28px; display:flex; gap:10px; align-items:center;
+  flex-shrink:0;
+}
+#checkBtn {
+  background:linear-gradient(135deg,#f85149,#ff7b72);
+  color:#fff; border:none; padding:8px 22px;
+  border-radius:8px; font-size:13px; font-weight:700;
+  cursor:pointer; display:flex; align-items:center; gap:7px;
+  transition:opacity .2s, transform .1s;
+}
+#checkBtn:hover { opacity:.9; transform:translateY(-1px); }
+#checkBtn:active { transform:translateY(0); }
+#clearBtn {
+  background:#21262d; color:#cdd9e5; border:1px solid #30363d;
+  padding:8px 18px; border-radius:8px; font-size:13px; font-weight:600;
+  cursor:pointer; transition:background .2s;
+}
+#clearBtn:hover { background:#30363d; }
+#sampleBtn {
+  background:#21262d; color:#58a6ff; border:1px solid #30363d;
+  padding:8px 18px; border-radius:8px; font-size:13px; font-weight:600;
+  cursor:pointer; transition:background .2s;
+}
+#sampleBtn:hover { background:#30363d; }
+.status-badge {
+  margin-left:auto; padding:5px 14px; border-radius:20px;
+  font-size:12px; font-weight:700; font-family:'Fira Code',monospace;
+  display:none;
+}
+.status-badge.error { background:rgba(248,81,73,.15); color:#f85149; border:1px solid rgba(248,81,73,.3); display:inline-block; }
+.status-badge.ok { background:rgba(63,185,80,.15); color:#3fb950; border:1px solid rgba(63,185,80,.3); display:inline-block; }
+
+.main { display:flex; flex:1; overflow:hidden; }
+
+/* Editor */
+.editor-pane {
+  flex:1; display:flex; flex-direction:column;
+  border-right:1px solid #30363d; min-width:0;
+}
+.pane-header {
+  background:#21262d; padding:9px 16px;
+  font-size:11px; font-weight:700; color:#8b949e;
+  text-transform:uppercase; letter-spacing:1.5px;
+  display:flex; align-items:center; gap:8px; flex-shrink:0;
+}
+.pane-header .dot { width:8px; height:8px; border-radius:50%; }
+.CodeMirror { height:100% !important; font-family:'Fira Code',monospace !important; font-size:13px !important; background:#0d1117 !important; }
+.CodeMirror-scroll { height:100% !important; }
+.editor-wrap { flex:1; overflow:hidden; }
+.cm-error-line { background:rgba(248,81,73,.12) !important; }
+
+/* Errors panel */
+.errors-pane {
+  width:400px; flex-shrink:0; display:flex; flex-direction:column;
+  background:#0d1117;
+}
+.errors-scroll { flex:1; overflow-y:auto; padding:12px; }
+.errors-scroll::-webkit-scrollbar { width:6px; }
+.errors-scroll::-webkit-scrollbar-track { background:#0d1117; }
+.errors-scroll::-webkit-scrollbar-thumb { background:#30363d; border-radius:3px; }
+
+.empty-state {
+  display:flex; flex-direction:column; align-items:center;
+  justify-content:center; height:100%; color:#484f58;
+  gap:12px; padding:40px;
+}
+.empty-state .icon { font-size:48px; }
+.empty-state p { font-size:13px; text-align:center; line-height:1.6; }
+
+.error-item {
+  background:#161b22; border:1px solid #30363d;
+  border-left:3px solid #f85149;
+  border-radius:8px; padding:10px 13px;
+  margin-bottom:8px; cursor:pointer;
+  transition:background .15s, transform .1s;
+  animation: slideIn .2s ease both;
+}
+@keyframes slideIn {
+  from { opacity:0; transform:translateX(10px); }
+  to   { opacity:1; transform:translateX(0); }
+}
+.error-item:hover { background:#1c2128; transform:translateX(-2px); }
+.error-top { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+.err-badge {
+  font-family:'Fira Code',monospace; font-size:10px;
+  background:#21262d; color:#f85149;
+  padding:2px 7px; border-radius:4px; white-space:nowrap;
+}
+.error-msg { font-size:12px; color:#cdd9e5; line-height:1.5; }
+.error-tag {
+  margin-left:auto; font-size:10px; font-weight:700;
+  padding:2px 6px; border-radius:4px; text-transform:uppercase;
+}
+.tag-bracket { background:rgba(88,166,255,.15); color:#58a6ff; }
+.tag-semi   { background:rgba(240,180,41,.15); color:#f0b429; }
+.tag-ctrl   { background:rgba(163,113,247,.15); color:#a371f7; }
+.tag-char   { background:rgba(248,81,73,.15); color:#f85149; }
+.tag-global { background:rgba(63,185,80,.15); color:#3fb950; }
+.tag-other  { background:rgba(139,148,158,.15); color:#8b949e; }
+
+.summary-bar {
+  background:#161b22; border-top:1px solid #30363d;
+  padding:10px 16px; display:flex; gap:16px; align-items:center;
+  flex-shrink:0;
+}
+.sum-item { font-size:12px; color:#8b949e; }
+.sum-item strong { color:#e6edf3; }
+
+.loading { display:none; align-items:center; gap:8px; color:#8b949e; font-size:13px; }
+.loading.show { display:flex; }
+.spinner {
+  width:16px; height:16px; border:2px solid #30363d;
+  border-top-color:#f85149; border-radius:50%;
+  animation:spin .6s linear infinite;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🔍</div>
+    <h1>C Syntax <span>Checker</span></h1>
+  </div>
+  <div class="header-meta">Compiler Design Lab · Navrachana University</div>
+</header>
+
+<div class="toolbar">
+  <button id="checkBtn" onclick="checkCode()">▶ Check Code</button>
+  <button id="sampleBtn" onclick="loadSample()">📄 Load Sample</button>
+  <button id="clearBtn" onclick="clearAll()">✕ Clear</button>
+  <div class="loading" id="loading"><div class="spinner"></div> Analyzing…</div>
+  <span class="status-badge" id="statusBadge"></span>
+</div>
+
+<div class="main">
+  <div class="editor-pane">
+    <div class="pane-header">
+      <div class="dot" style="background:#f85149"></div>
+      <div class="dot" style="background:#f0b429"></div>
+      <div class="dot" style="background:#3fb950"></div>
+      &nbsp; editor.c
+    </div>
+    <div class="editor-wrap">
+      <textarea id="codeArea"></textarea>
+    </div>
+  </div>
+
+  <div class="errors-pane">
+    <div class="pane-header">
+      <div class="dot" style="background:#f85149"></div>
+      &nbsp; Errors &amp; Warnings
+      <span id="errCount" style="margin-left:auto; font-size:11px; color:#484f58;">—</span>
+    </div>
+    <div class="errors-scroll" id="errorsList">
+      <div class="empty-state">
+        <div class="icon">🛡️</div>
+        <p>Write or paste your C code in the editor,<br>then click <strong>Check Code</strong> to analyze.</p>
+      </div>
+    </div>
+    <div class="summary-bar" id="summaryBar" style="display:none">
+      <div class="sum-item">Errors: <strong id="sumErrors">0</strong></div>
+      <div class="sum-item">Lines: <strong id="sumLines">0</strong></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const editor = CodeMirror.fromTextArea(document.getElementById('codeArea'), {
+  mode: 'text/x-csrc',
+  theme: 'dracula',
+  lineNumbers: true,
+  indentUnit: 4,
+  tabSize: 4,
+  indentWithTabs: false,
+  lineWrapping: false,
+  autofocus: true,
+  extraKeys: { "Ctrl-Enter": checkCode, "Cmd-Enter": checkCode }
+});
+
+// Track highlighted lines
+let highlights = [];
+
+function clearHighlights() {
+  highlights.forEach(h => h.clear());
+  highlights = [];
+}
+
+function tagFor(msg) {
+  const m = msg.toLowerCase();
+  if (m.includes('bracket') || m.includes('parenthes') || m.includes('brace')) return ['tag-bracket','BRACKET'];
+  if (m.includes('semicolon')) return ['tag-semi','SEMICOLON'];
+  if (m.includes('if') || m.includes('while') || m.includes('for') || m.includes('else') || m.includes('switch') || m.includes('loop')) return ['tag-ctrl','CONTROL'];
+  if (m.includes('character') || m.includes('string') || m.includes('preprocessor')) return ['tag-char','SYNTAX'];
+  if (m.includes('return type') || m.includes('global')) return ['tag-global','GLOBAL'];
+  return ['tag-other','OTHER'];
+}
+
+function parseLineNum(msg) {
+  const m = msg.match(/^Line (\d+):/);
+  return m ? parseInt(m[1]) : null;
+}
+
+async function checkCode() {
+  const code = editor.getValue();
+  if (!code.trim()) return;
+
+  document.getElementById('loading').classList.add('show');
+  document.getElementById('checkBtn').disabled = true;
+  clearHighlights();
+
+  try {
+    const res = await fetch('/check', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({code})
+    });
+    const data = await res.json();
+    renderErrors(data.errors, code);
+  } catch(e) {
+    renderErrors(['Error contacting server: ' + e.message], code);
+  }
+
+  document.getElementById('loading').classList.remove('show');
+  document.getElementById('checkBtn').disabled = false;
+}
+
+function renderErrors(errors, code) {
+  const list = document.getElementById('errorsList');
+  const badge = document.getElementById('statusBadge');
+  const summary = document.getElementById('summaryBar');
+
+  clearHighlights();
+
+  if (!errors.length) {
+    list.innerHTML = `<div class="empty-state"><div class="icon">✅</div><p style="color:#3fb950;font-weight:700;font-size:15px;">No Errors Found!</p><p>Your C code looks syntactically clean.</p></div>`;
+    badge.className = 'status-badge ok';
+    badge.textContent = '✓ Clean';
+    document.getElementById('errCount').textContent = '0 errors';
+    summary.style.display = 'flex';
+    document.getElementById('sumErrors').textContent = 0;
+    document.getElementById('sumLines').textContent = code.split('\n').length;
+    return;
+  }
+
+  badge.className = 'status-badge error';
+  badge.textContent = `✕ ${errors.length} error${errors.length>1?'s':''}`;
+  document.getElementById('errCount').textContent = `${errors.length} error${errors.length>1?'s':''}`;
+
+  list.innerHTML = '';
+  errors.forEach((msg, i) => {
+    const lineNum = parseLineNum(msg);
+    const [tagClass, tagLabel] = tagFor(msg);
+
+    // Highlight error line in editor
+    if (lineNum && lineNum >= 1) {
+      const h = editor.addLineClass(lineNum-1, 'background', 'cm-error-line');
+      highlights.push(h);
+    }
+
+    const div = document.createElement('div');
+    div.className = 'error-item';
+    div.style.animationDelay = (i * 0.03) + 's';
+    div.innerHTML = `
+      <div class="error-top">
+        <span class="err-badge">${lineNum ? 'Line '+lineNum : 'Global'}</span>
+        <span class="error-tag ${tagClass}">${tagLabel}</span>
+      </div>
+      <div class="error-msg">${msg.replace(/^Line \d+:\s*/,'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`;
+
+    // Click to jump to line
+    if (lineNum) {
+      div.addEventListener('click', () => {
+        editor.setCursor(lineNum-1, 0);
+        editor.scrollIntoView({line:lineNum-1, ch:0}, 150);
+        editor.focus();
+      });
+    }
+    list.appendChild(div);
+  });
+
+  summary.style.display = 'flex';
+  document.getElementById('sumErrors').textContent = errors.length;
+  document.getElementById('sumLines').textContent = code.split('\n').length;
+}
+
+function clearAll() {
+  editor.setValue('');
+  document.getElementById('errorsList').innerHTML = `<div class="empty-state"><div class="icon">🛡️</div><p>Write or paste your C code in the editor,<br>then click <strong>Check Code</strong> to analyze.</p></div>`;
+  document.getElementById('statusBadge').className = 'status-badge';
+  document.getElementById('errCount').textContent = '—';
+  document.getElementById('summaryBar').style.display = 'none';
+  clearHighlights();
+  editor.focus();
+}
+
+function loadSample() {
+  editor.setValue(`#include <stdio.h>
+
+// Sample with intentional errors
+
+int main() {{
+    int a = 10
+    printf(((\"Hello\");
+    
+    if x > 0
+        printf(\"positive\");
+    
+    while ()
+        a++;
+    
+    for(i=0 i<10 i++)
+        printf(\"%d\", i);
+    
+    int b = 5 ₹
+    
+    else {
+        printf(\"error\");
+    }
+    
+    return 0;
+}`);
+  editor.focus();
+}
+
+// Ctrl+Enter shortcut hint
+editor.on('keydown', (cm, e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') checkCode();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>C Syntax Checker Report</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@400;600;700;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+
+  .container { max-width: 960px; margin: 0 auto; }
+
+  .header {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+    border: 1px solid #30363d;
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, #f85149, #ff7b72, #ffa657);
+  }
+  .header h1 {
+    font-size: 26px; font-weight: 800;
+    background: linear-gradient(90deg, #ff7b72, #ffa657);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .header .meta { color: #8b949e; font-size: 13px; font-family: 'Fira Code', monospace; }
+  .header .meta span { color: #58a6ff; }
+
+  .stats-row {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+    margin-bottom: 28px;
+  }
+  .stat-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+  }
+  .stat-card .num {
+    font-size: 36px; font-weight: 800;
+    background: linear-gradient(135deg, #f85149, #ff7b72);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .stat-card.green .num {
+    background: linear-gradient(135deg, #3fb950, #56d364);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .stat-card.yellow .num {
+    background: linear-gradient(135deg, #d29922, #f0b429);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .stat-card .label { font-size: 12px; color: #8b949e; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+
+  .section-title {
+    font-size: 14px; font-weight: 700; color: #8b949e;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: #30363d; }
+
+  .errors-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px; }
+
+  .error-item {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-left: 3px solid #f85149;
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex; align-items: flex-start; gap: 12px;
+    transition: background 0.2s;
+  }
+  .error-item:hover { background: #1c2128; }
+
+  .error-icon { font-size: 16px; margin-top: 1px; flex-shrink: 0; }
+
+  .error-line {
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    background: #21262d;
+    color: #f85149;
+    padding: 2px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .error-msg { font-size: 13px; color: #cdd9e5; line-height: 1.5; }
+
+  .source-section {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .source-header {
+    background: #21262d;
+    padding: 12px 20px;
+    font-size: 12px; font-weight: 600;
+    color: #8b949e; font-family: 'Fira Code', monospace;
+    display: flex; justify-content: space-between;
+  }
+  .source-body { padding: 20px; overflow-x: auto; }
+  .source-body pre {
+    font-family: 'Fira Code', monospace;
+    font-size: 12px; line-height: 1.7;
+    color: #cdd9e5;
+    counter-reset: line;
+  }
+  .source-body pre .ln {
+    display: inline-block;
+    width: 32px; text-align: right;
+    color: #484f58; margin-right: 16px;
+    user-select: none;
+  }
+  .source-body pre .err-line { background: rgba(248,81,73,0.1); display: block; border-radius: 3px; }
+
+  .footer {
+    text-align: center; color: #484f58; font-size: 12px;
+    padding-top: 12px; border-top: 1px solid #21262d;
+  }
+  .badge {
+    display: inline-block;
+    background: #21262d; color: #8b949e;
+    padding: 2px 8px; border-radius: 20px;
+    font-size: 11px; font-family: 'Fira Code', monospace;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>🔍 C Syntax Checker Report</h1>
+    <div class="meta">
+      File: <span>all_errors_test.c</span> &nbsp;|&nbsp;
+      Checker: <span>c_syntax_checker.py</span> &nbsp;|&nbsp;
+      Date: <span>2026-05-15</span>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="num">37</div>
+      <div class="label">Total Errors Found</div>
+    </div>
+    <div class="stat-card yellow">
+      <div class="num">100</div>
+      <div class="label">Lines in File</div>
+    </div>
+    <div class="stat-card green">
+      <div class="num">29</div>
+      <div class="label">Error Types Tested</div>
+    </div>
+  </div>
+
+  <div class="section-title">Detected Errors</div>
+  <div class="errors-list">
+
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 5</span>
+      <span class="error-msg">Unclosed bracket '{' at position 11</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 10</span>
+      <span class="error-msg">Multiple mismatched parentheses</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 10</span>
+      <span class="error-msg">Unclosed parenthesis '(' (×2)</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 13</span>
+      <span class="error-msg">Unmatched closing parenthesis ')' at position 15</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 16</span>
+      <span class="error-msg">Unclosed parenthesis '('</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 18</span>
+      <span class="error-msg">Mismatched brackets. Expected '[' (opened at line 16, pos 6) before ']' at position 40</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 19</span>
+      <span class="error-msg">Unmatched closing bracket ']' at position 6 — Mismatched: Expected '[' (opened at line 15, pos 28)</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 21</span>
+      <span class="error-msg">Unclosed bracket '[' at position 31</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 22</span>
+      <span class="error-msg">Unclosed bracket '[' (×2 — local + global)</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 25</span>
+      <span class="error-msg">Missing semicolon in statement</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 40</span>
+      <span class="error-msg">Missing semicolon in statement</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 40</span>
+      <span class="error-msg">Invalid character(s): ₹</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 40</span>
+      <span class="error-msg">Missing semicolon in multi-line expression</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 43</span>
+      <span class="error-msg">Missing parentheses after 'if'</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 46</span>
+      <span class="error-msg">Missing parentheses after 'while'</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 49</span>
+      <span class="error-msg">Missing parentheses after 'for'</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 52</span>
+      <span class="error-msg">Missing parentheses after 'switch'</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 55</span>
+      <span class="error-msg">Missing parentheses after 'if' &amp; Empty condition in 'if' statement</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 58</span>
+      <span class="error-msg">Missing parentheses after 'while' &amp; Empty condition in 'while' statement</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 61</span>
+      <span class="error-msg">Missing parentheses after 'for' &amp; Empty condition in 'for' &amp; Invalid for loop syntax - expected 2 semicolons</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 64</span>
+      <span class="error-msg">Invalid for loop syntax - expected 2 semicolons</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 67</span>
+      <span class="error-msg">Mixed brace and semicolon usage in 'if' statement</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 75</span>
+      <span class="error-msg">Unclosed parenthesis '(' — Unclosed bracket '(' at pos 8 — Unclosed bracket '{' at pos 10</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 78</span>
+      <span class="error-msg">Unclosed bracket '{' at position 11</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 89</span>
+      <span class="error-msg">'else' without matching 'if'</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Line 94</span>
+      <span class="error-msg">Missing semicolon in statement &amp; Missing semicolon in multi-line expression</span>
+    </div>
+    <div class="error-item">
+      <span class="error-icon">❌</span>
+      <span class="error-line">Global</span>
+      <span class="error-msg">Possible invalid return type 'number' in function 'add'</span>
+    </div>
+
+  </div>
+
+  <div class="section-title">Source File — all_errors_test.c</div>
+  <div class="source-section">
+    <div class="source-header">
+      <span>all_errors_test.c</span>
+      <span class="badge">100 lines</span>
+    </div>
+    <div class="source-body">
+<pre>
+<span class="ln">1</span><span style="color:#8b949e">// This file contains C code snippets that trigger each error detected by the C Syntax Checker.</span>
+<span class="ln">2</span><span style="color:#8b949e">// Each snippet is separated by comments indicating the error type.</span>
+<span class="ln">3</span>
+<span class="ln">4</span><span style="color:#8b949e">// 1. Multiple Mismatched Braces {}</span>
+<span class="ln">5</span><span class="err-line"><span style="color:#ff7b72">int</span> main() <span style="color:#f85149">{{</span></span>
+<span class="ln">6</span>    printf(<span style="color:#a5d6ff">"Hello"</span>);
+<span class="ln">7</span>}
+<span class="ln">8</span>
+<span class="ln">9</span><span style="color:#8b949e">// 2. Multiple Mismatched Parentheses ()</span>
+<span class="ln">10</span><span class="err-line">printf(<span style="color:#f85149">((</span><span style="color:#a5d6ff">"Hello"</span>);</span>
+<span class="ln">11</span>
+<span class="ln">12</span><span style="color:#8b949e">// 3. Unmatched Closing Parenthesis</span>
+<span class="ln">13</span><span class="err-line">printf(<span style="color:#a5d6ff">"Hello"</span>)<span style="color:#f85149">)</span>;</span>
+<span class="ln">14</span>
+<span class="ln">15</span><span style="color:#8b949e">// 4. Unclosed Parenthesis</span>
+<span class="ln">16</span><span class="err-line">printf(<span style="color:#f85149">(</span><span style="color:#a5d6ff">"Hello"</span>);</span>
+<span class="ln">17</span>
+<span class="ln">18</span><span style="color:#8b949e">// 5. Unmatched Closing Square Bracket</span>
+<span class="ln">19</span><span class="err-line">arr[5]<span style="color:#f85149">]</span>;</span>
+<span class="ln">20</span>
+<span class="ln">21</span><span style="color:#8b949e">// 6. Unclosed Square Bracket</span>
+<span class="ln">22</span><span class="err-line">arr<span style="color:#f85149">[</span>5;</span>
+<span class="ln">23</span>
+<span class="ln">24</span><span style="color:#8b949e">// 7. Missing Semicolon in Statement</span>
+<span class="ln">25</span><span class="err-line"><span style="color:#ff7b72">int</span> a = 10<span style="color:#f85149"> ← missing ;</span></span>
+<span class="ln">26</span>
+<span class="ln">27</span><span style="color:#8b949e">// 8. Missing Semicolon After Identifier</span>
+<span class="ln">28</span>value
+<span class="ln">29</span>
+<span class="ln">30</span><span style="color:#8b949e">// 9. Missing Semicolon Between Identifiers</span>
+<span class="ln">31</span>abc def
+<span class="ln">32</span>
+<span class="ln">33</span><span style="color:#8b949e">// 10. Missing Semicolon After Second Identifier</span>
+<span class="ln">34</span>ab;cd
+<span class="ln">35</span>
+<span class="ln">36</span><span style="color:#8b949e">// 11. Multiple Consecutive Semicolons</span>
+<span class="ln">37</span><span style="color:#ff7b72">int</span> a = 5<span style="color:#f85149">;;;</span>
+<span class="ln">38</span>
+<span class="ln">39</span><span style="color:#8b949e">// 12. Invalid Characters</span>
+<span class="ln">40</span><span class="err-line"><span style="color:#ff7b72">int</span> a = 10 <span style="color:#f85149">₹</span></span>
+<span class="ln">41</span>
+<span class="ln">42</span><span style="color:#8b949e">// 13. Missing Parentheses After 'if'</span>
+<span class="ln">43</span><span class="err-line"><span style="color:#ff7b72">if</span> x &gt; 0</span>
+<span class="ln">44</span>
+<span class="ln">45</span><span style="color:#8b949e">// 14. Missing Parentheses After 'while'</span>
+<span class="ln">46</span><span class="err-line"><span style="color:#ff7b72">while</span> x &lt; 10</span>
+<span class="ln">47</span>
+<span class="ln">48</span><span style="color:#8b949e">// 15. Missing Parentheses After 'for'</span>
+<span class="ln">49</span><span class="err-line"><span style="color:#ff7b72">for</span> i=0;i&lt;5;i++</span>
+<span class="ln">50</span>
+<span class="ln">51</span><span style="color:#8b949e">// 16. Missing Parentheses After 'switch'</span>
+<span class="ln">52</span><span class="err-line"><span style="color:#ff7b72">switch</span> x</span>
+<span class="ln">53</span>
+<span class="ln">54</span><span style="color:#8b949e">// 17. Empty Condition in 'if'</span>
+<span class="ln">55</span><span class="err-line"><span style="color:#ff7b72">if</span> ()</span>
+<span class="ln">56</span>
+<span class="ln">57</span><span style="color:#8b949e">// 18. Empty Condition in 'while'</span>
+<span class="ln">58</span><span class="err-line"><span style="color:#ff7b72">while</span> ()</span>
+<span class="ln">59</span>
+<span class="ln">60</span><span style="color:#8b949e">// 19. Empty Condition in 'for'</span>
+<span class="ln">61</span><span class="err-line"><span style="color:#ff7b72">for</span> ()</span>
+<span class="ln">62</span>
+<span class="ln">63</span><span style="color:#8b949e">// 20. Invalid 'for' Loop Syntax</span>
+<span class="ln">64</span><span class="err-line"><span style="color:#ff7b72">for</span>(i=0 i&lt;10 i++)</span>
+<span class="ln">65</span>
+<span class="ln">66</span><span style="color:#8b949e">// 21. Mixed Brace and Semicolon Usage</span>
+<span class="ln">67</span><span class="err-line"><span style="color:#ff7b72">if</span>(x&gt;0){ printf(<span style="color:#a5d6ff">"Hi"</span>);</span>
+<span class="ln">68</span>
+<span class="ln">69</span><span style="color:#8b949e">// 22. Unmatched Closing Bracket Globally</span>
+<span class="ln">70</span><span style="color:#ff7b72">int</span> main() {
+<span class="ln">71</span>    printf(<span style="color:#a5d6ff">"Hello"</span>);
+<span class="ln">72</span><span class="err-line">}<span style="color:#f85149">}</span></span>
+<span class="ln">73</span>
+<span class="ln">74</span><span style="color:#8b949e">// 23. Mismatched Brackets</span>
+<span class="ln">75</span><span class="err-line"><span style="color:#ff7b72">int</span> main<span style="color:#f85149">(</span> {</span>
+<span class="ln">76</span>
+<span class="ln">77</span><span style="color:#8b949e">// 24. Unclosed Global Brackets</span>
+<span class="ln">78</span><span class="err-line"><span style="color:#ff7b72">int</span> main() <span style="color:#f85149">{</span></span>
+<span class="ln">79</span>    printf(<span style="color:#a5d6ff">"Hello"</span>);
+<span class="ln">80</span>
+<span class="ln">81</span><span style="color:#8b949e">// 25. Invalid Function Return Type</span>
+<span class="ln">82</span><span class="err-line"><span style="color:#f85149">number</span> add() {</span>
+<span class="ln">83</span>}
+<span class="ln">84</span>
+<span class="ln">85</span><span style="color:#8b949e">// 26. Unterminated String Literal</span>
+<span class="ln">86</span>printf(<span style="color:#f85149">"Hello</span>);
+<span class="ln">87</span>
+<span class="ln">88</span><span style="color:#8b949e">// 27. 'else' Without Matching 'if'</span>
+<span class="ln">89</span><span class="err-line"><span style="color:#ff7b72">else</span> {</span>
+<span class="ln">90</span>    printf(<span style="color:#a5d6ff">"Error"</span>);
+<span class="ln">91</span>}
+<span class="ln">92</span>
+<span class="ln">93</span><span style="color:#8b949e">// 28. Missing Semicolon in Multi-line Expression</span>
+<span class="ln">94</span><span class="err-line">a =</span>
+<span class="ln">95</span>b +
+<span class="ln">96</span>c
+<span class="ln">97</span>
+<span class="ln">98</span><span style="color:#8b949e">// 29. Invalid Preprocessor Directive</span>
+<span class="ln">99</span>#invalid something
+<span class="ln">100</span>
+</pre>
+    </div>
+  </div>
+
+  <div class="footer">
+    Generated by C Syntax Checker · Compiler Design Lab · Navrachana University · 2026
+  </div>
+
+</div>
+</body>
+</html>
