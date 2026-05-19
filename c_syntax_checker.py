@@ -50,13 +50,10 @@ class CSyntaxChecker:
         (r'-\*(?![=>])',   '-*'),
     ]
 
-    # Post-increment/decrement immediately followed by identifier or * /
-    # e.g.  i++b   i++*5   a--b
+    # Post-increment/decrement immediately followed by identifier (e.g. i++b, a--c)
     INVALID_POSTFIX = [
         (r'\+\+\s*[a-zA-Z_]',  'i++<identifier>  (e.g. i++b)'),
         (r'--\s*[a-zA-Z_]',    'i--<identifier>  (e.g. a--b)'),
-        (r'\+\+\s*[*/]',       'i++<operator>    (e.g. i++*5)'),
-        (r'--\s*[*/]',         'i--<operator>    (e.g. a--/2)'),
     ]
 
     def __init__(self):
@@ -415,12 +412,28 @@ class CSyntaxChecker:
     # ── Universal: invalid post-increment/decrement ─────────────────────
     def _check_invalid_postfix(self, line_no, line):
         cleaned = re.sub(r'"[^"]*"', '""', line)
+        # Check for i++b, a--c (identifier directly after ++/--)
         for pattern, label in self.INVALID_POSTFIX:
             if re.search(pattern, cleaned):
                 self.errors.append(
                     f"Error (Line {line_no}): Invalid post-increment/decrement usage "
                     f"'{label}'"
                 )
+        # Check for incrementing constants: 5++, 10--
+        if re.search(r'\b\d+\s*(\+\+|--)\b', cleaned):
+            self.errors.append(
+                f"Error (Line {line_no}): Cannot apply increment/decrement to a constant (e.g. 5++ or 10-- is invalid)"
+            )
+        # Check for incrementing non-modifiable lvalues: (a+b)++, (x*2)--
+        if re.search(r'\([^\)]+\)\s*(\+\+|--)\b', cleaned):
+            self.errors.append(
+                f"Error (Line {line_no}): Cannot apply increment/decrement to a non-modifiable lvalue (e.g. (a+b)++ is invalid)"
+            )
+        # Check for double increment/decrement: i++++, i----
+        if re.search(r'\b[a-zA-Z_][a-zA-Z0-9_]*\s*(\+\+){2,}', cleaned) or re.search(r'\b[a-zA-Z_][a-zA-Z0-9_]*\s*(--){2,}', cleaned):
+            self.errors.append(
+                f"Error (Line {line_no}): Invalid double increment/decrement (e.g. i++++ is invalid)"
+            )
 
     # ── Universal: semicolon at end ─────────────────────────────────────
     def _check_semicolon(self, line_no, line, stmt_type):
