@@ -1,35 +1,3 @@
-"""
-=============================================================================
-C Syntax Checker
-=============================================================================
-Module 1 – Main Function Validation
-    Check 1 : Program must have int main() or void main()
-    Check 2 : main() must be followed by opening '{'
-    Check 2.5: return statement must exist inside main() body
-    Check 3 : Stack-based curly-bracket balancing
-
-Module 2 – Statement Analyser (line-by-line inside main body)
-    Step A : Tokenise each line
-    Step B : Identify statement type
-               DECLARATION  – int / float / char / double / long / short
-               IF           – if(...)
-               FOR          – for(...)
-               WHILE        – while(...)
-               PRINTF       – printf(...)
-               SCANF        – scanf(...)
-               ASSIGNMENT   – identifier = expression
-               ARITHMETIC   – expression without assignment
-               RETURN       – return ...
-    Step C : Per-type validation
-               • Variable name valid (starts with letter/_, no spaces mid-name)
-               • '=' must not appear before the variable name
-               • Invalid operator combinations: *+  *-  /+  /-  +*  -*
-               • Invalid post-increment usage: i++b  i++*5
-               • Missing semicolon at end of statement
-               • Unmatched parentheses  ( )
-=============================================================================
-"""
-
 import re
 import sys
 
